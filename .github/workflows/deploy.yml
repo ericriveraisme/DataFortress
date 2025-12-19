@@ -4,13 +4,11 @@ on:
   push:
     branches: ["main"]
 
-# This block is critical for the "Not Found" error fix
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment
 concurrency:
   group: "pages"
   cancel-in-progress: true
@@ -27,18 +25,22 @@ jobs:
         with:
           node-version: 20
           cache: 'npm'
+          # Tells Node where to look for the lockfile
+          cache-dependency-path: datafortress/package-lock.json
 
       - name: Install dependencies
         run: npm install
+        working-directory: datafortress
 
       - name: Build
         run: npm run build
+        working-directory: datafortress
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # This should point to your build output folder
-          path: ./dist
+          # Points to the dist folder inside datafortress
+          path: datafortress/dist
 
   deploy:
     environment:
