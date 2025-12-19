@@ -2,18 +2,18 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches:
-      - main
-  workflow_dispatch:
+    branches: ["main"]
 
+# This block is critical for the "Not Found" error fix
 permissions:
   contents: read
   pages: write
   id-token: write
 
+# Allow only one concurrent deployment
 concurrency:
   group: "pages"
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -21,31 +21,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Node
+      
+      - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 20
           cache: 'npm'
-          cache-dependency-path: './datafortress/package-lock.json'
 
       - name: Install dependencies
-        run: |
-          cd datafortress
-          npm ci
+        run: npm install
 
       - name: Build
-        run: |
-          cd datafortress
-          npm run build
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
+        run: npm run build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './datafortress/dist'
+          # This should point to your build output folder
+          path: ./dist
 
   deploy:
     environment:
