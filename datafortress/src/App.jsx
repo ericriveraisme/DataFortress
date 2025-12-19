@@ -1,11 +1,10 @@
 /**
  * DATA FORTRESS AUDITOR
- * Version: 1.4.0 (Enhanced Validation Logic)
+ * Version: 1.5.0 (Remediation Clarity Update)
  * Date: December 19, 2025
  * * CHANGE LOG:
+ * - v1.5.0: Updated AD Findings to explicitly label "Target Account ID" (SamAccountName) for easier remediation. Enhanced validation with forbidden columns.
  * - v1.4.0: Added "Negative Validation" logic.
- * - Now explicitly checks for "Forbidden Columns" to identify cross-uploads (e.g., detecting a Backup file uploaded to the SQL slot).
- * - Fixed potential issue where error state might not display immediately.
  * - v1.3.0: Strict column fingerprinting.
  * - v1.2.0: Added "Data Guard".
  * - v1.1.0: Export fixes.
@@ -40,28 +39,52 @@ const parseCSV = (text) => {
   return { headers, data: result };
 };
 
+// Simple string hash for anonymization
+const hashString = (str) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash).toString(36).substring(0, 8); // Short hash
+};
+
 // --- VALIDATION LOGIC (The "Data Guard") ---
 const validateFile = (type, parsed) => {
     if (!parsed || parsed.data.length === 0) return { valid: false, error: "File is empty or unreadable." };
     
+    // Normalize headers to lowercase for comparison
     const headers = parsed.headers.map(h => h.toLowerCase());
     
-    // Detect file type based on unique headers
-    let detectedType = null;
-    if (headers.includes('priority') && headers.includes('finding')) detectedType = 'sql';
-    else if (headers.includes('groupname') && headers.includes('samaccountname')) detectedType = 'ad';
-    else if (headers.includes('message')) detectedType = 'backup';
-    
-    if (!detectedType) {
-        return { valid: false, error: "Unknown file format. Ensure it's a valid CSV export." };
+    let required = [];
+    let forbidden = []; // New: Columns that definitively prove this is the WRONG file type
+
+    if (type === 'sql') {
+        required = ['priority', 'finding'];
+        forbidden = ['samaccountname', 'timecreated', 'leveldisplayname']; // Signs of AD or Backup files
     }
-    
-    if (detectedType !== type) {
-        const typeNames = { sql: 'SQL Health', ad: 'AD Security', backup: 'Backup Integrity' };
-        return { valid: false, error: `This appears to be a ${typeNames[detectedType]} file. Please upload to the correct slot.` };
+    if (type === 'ad') {
+        required = ['groupname', 'samaccountname'];
+        forbidden = ['priority', 'finding', 'timecreated']; // Signs of SQL or Backup files
     }
-    
-    // If it matches the slot, it's valid
+    if (type === 'backup') {
+        required = ['message']; 
+        forbidden = ['priority', 'finding', 'samaccountname', 'groupname']; // Signs of SQL or AD files
+    }
+
+    // 1. Check for Forbidden Columns (Strongest Signal)
+    const foundForbidden = forbidden.filter(f => headers.includes(f));
+    if (foundForbidden.length > 0) {
+        return { valid: false, error: `Wrong file type! Detected '${foundForbidden[0]}' column.` };
+    }
+
+    // 2. Check for Required Columns
+    const missing = required.filter(r => !headers.includes(r));
+    if (missing.length > 0) {
+        return { valid: false, error: `Invalid File. Missing columns: ${missing.join(', ')}` };
+    }
+
     return { valid: true, error: null };
 };
 
@@ -136,8 +159,9 @@ const analyzeAD = (data) => {
         if (isRedFlag) {
             findings.push({
                 type: 'CRITICAL',
-                title: `Unsecured Admin: ${row.SamAccountName}`,
-                desc: `Account '${row.Name}' is in '${row.GroupName}'. This appears to be a service or generic account.`,
+                // Explicitly label the ID for the consultant
+                title: `Target Account ID: ${row.SamAccountName}`, 
+                desc: `Name: '${hashString(row.Name)}' | Group: '${row.GroupName}'. This account matches high-risk keywords.`,
                 impact: 'High risk of credential theft. Service accounts should not be Domain Admins.'
             });
             riskLevel = 'CRITICAL';
